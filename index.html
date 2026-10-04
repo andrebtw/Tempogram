@@ -1,0 +1,786 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Click interval timer</title>
+<style>
+  :root {
+    --bg: #f6f7f5;
+    --surface: #ffffff;
+    --ink: #1b2320;
+    --muted: #66716c;
+    --line: #dde2de;
+    --accent: #c0392b;
+    --accent-ink: #ffffff;
+    --blue: #2a6f97;
+    --ok: #2e8b57;
+    --warn: #d4910f;
+    box-sizing: border-box;
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #121614; --surface: #1a201d; --ink: #e8ece9; --muted: #8e9a94;
+      --line: #2b332f; --accent: #e5604f; --accent-ink: #1a0805; --blue: #6fb3d8; --ok: #5cc48a; --warn: #f0b443;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #121614; --surface: #1a201d; --ink: #e8ece9; --muted: #8e9a94;
+    --line: #2b332f; --accent: #e5604f; --accent-ink: #1a0805; --blue: #6fb3d8; --ok: #5cc48a; --warn: #f0b443;
+  }
+  html { scroll-padding-top: env(safe-area-inset-top, 0px); }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    line-height: 1.45;
+  }
+  main { max-width: 760px; margin: 0 auto; padding: 20px 16px 48px; }
+  h1 { font-size: 1.15rem; margin: 0 0 4px; font-weight: 650; }
+  h2 { font-size: 1rem; margin: 0 0 2px; font-weight: 650; }
+  p.hint { margin: 0 0 16px; color: var(--muted); font-size: .92rem; }
+  p.desc { margin: 0 0 10px; color: var(--muted); font-size: .84rem; }
+
+  #pad {
+    width: 100%; min-height: 200px; border: 0; border-radius: 18px;
+    background: var(--accent); color: var(--accent-ink);
+    font: inherit; cursor: pointer; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 6px;
+    user-select: none; -webkit-user-select: none; touch-action: manipulation;
+    transition: transform .06s ease;
+  }
+  #pad:active, #pad.hit { transform: scale(.985); }
+  #pad:focus-visible { outline: 3px solid var(--ink); outline-offset: 3px; }
+  #big { font-size: clamp(3rem, 16vw, 5rem); font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1; }
+  #big small { font-size: .35em; font-weight: 500; margin-left: 4px; }
+  #sub { font-size: 1rem; opacity: .9; font-variant-numeric: tabular-nums; text-align: center; padding: 0 12px; }
+
+  .actions { display: flex; gap: 8px; margin: 14px 0; flex-wrap: wrap; }
+  .actions button {
+    flex: 1; min-width: 110px; padding: 10px 12px; font: inherit; font-size: .95rem;
+    border: 1px solid var(--line); background: var(--surface); color: var(--ink);
+    border-radius: 10px; cursor: pointer;
+  }
+  .actions button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 14px; margin-bottom: 14px; }
+  .group-title { font-size: .9rem; font-weight: 650; margin: 0 0 8px; }
+  .group + .group { margin-top: 14px; }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(108px, 1fr)); gap: 8px; }
+  .tile { border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; cursor: help; }
+  .tile b { display: block; font-size: 1.1rem; font-variant-numeric: tabular-nums; line-height: 1.25; }
+  .tile b i { font-style: normal; font-size: .72rem; font-weight: 500; color: var(--muted); margin-left: 2px; }
+  .tile span { font-size: .78rem; color: var(--muted); }
+
+  .charts-pair { display: grid; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); gap: 14px; }
+  .charts-pair .card { margin-bottom: 0; }
+  svg.chart { width: 100%; height: auto; display: block; overflow: visible; }
+  svg text { font-family: inherit; font-size: 11px; fill: var(--muted); }
+  svg .grid { stroke: var(--line); stroke-width: 1; }
+  svg .axis { stroke: var(--muted); stroke-width: 1; }
+  .legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: .78rem; color: var(--muted); margin-top: 8px; }
+  .legend span::before { content: ""; display: inline-block; vertical-align: middle; margin-right: 5px; }
+  .lg-line::before { width: 16px; height: 2px; background: var(--accent); }
+  .lg-mean::before { width: 16px; height: 0; border-top: 2px dashed var(--ink); }
+  .lg-band::before { width: 14px; height: 10px; background: var(--blue); opacity: .25; }
+  .lg-ring::before { width: 9px; height: 9px; border: 2px solid var(--ink); border-radius: 50%; }
+  .lg-id::before { width: 16px; height: 0; border-top: 1.5px dashed var(--muted); }
+  .lg-ell::before { width: 14px; height: 9px; border: 2px solid var(--blue); border-radius: 50%; }
+
+  .tablewrap { overflow-x: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; max-height: 320px; overflow-y: auto; margin-bottom: 14px; }
+  table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+  th, td { padding: 9px 14px; text-align: right; border-bottom: 1px solid var(--line); font-size: .95rem; }
+  th:first-child, td:first-child { text-align: left; color: var(--muted); }
+  th { position: sticky; top: 0; background: var(--surface); font-weight: 600; font-size: .82rem; color: var(--muted); }
+  tr:last-child td { border-bottom: 0; }
+  .empty { padding: 18px; color: var(--muted); text-align: center; font-size: .93rem; }
+  #toast { min-height: 1.3em; font-size: .85rem; color: var(--muted); margin: -4px 0 10px; text-align: center; }
+
+  .ctx { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: .88rem; margin: 4px 0 12px; }
+  .ctx select { font: inherit; font-size: .9rem; padding: 6px 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); }
+  .profile { font-size: .86rem; background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; margin-bottom: 12px; }
+  .profile:empty { display: none; }
+  .profile b { display: block; margin-bottom: 2px; }
+  .profile p { margin: 0; color: var(--muted); }
+  .profile p + p { margin-top: 4px; }
+  .findings { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+  .findings li { display: flex; gap: 10px; align-items: flex-start; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+  .findings .dot { flex: none; width: 12px; height: 12px; border-radius: 50%; margin-top: 4px; background: var(--muted); }
+  .findings li.ok .dot { background: var(--ok); }
+  .findings li.note .dot { background: var(--warn); }
+  .findings li.flag .dot { background: var(--accent); }
+  .findings li.flag { border-color: var(--accent); }
+  .findings b { display: block; font-size: .95rem; }
+  .findings p { margin: 2px 0 0; font-size: .86rem; color: var(--muted); }
+  .warning { border: 2px solid var(--warn); background: var(--surface); background: color-mix(in srgb, var(--warn) 12%, var(--surface)); border-radius: 14px; padding: 12px 14px; margin: 0 0 16px; font-size: .9rem; }
+  .warning b { display: block; font-size: 1rem; margin-bottom: 4px; }
+  .warning p { margin: 0; }
+  .warning p + p { margin-top: 6px; }
+  .mini-warn { font-size: .82rem; color: var(--muted); border-left: 3px solid var(--warn); padding: 4px 0 4px 10px; margin: 0 0 12px; }
+  .urgent { margin-top: 12px; font-size: .84rem; border-left: 3px solid var(--accent); padding: 6px 0 6px 10px; }
+  details { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px; }
+  summary { cursor: pointer; font-weight: 600; font-size: .92rem; }
+  details dl { margin: 10px 0 0; font-size: .86rem; }
+  details dt { font-weight: 600; margin-top: 8px; }
+  details dd { margin: 2px 0 0; color: var(--muted); }
+  .note { font-size: .8rem; color: var(--muted); margin-top: 10px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Click interval timer</h1>
+  <p class="hint">Click or tap the red area (or press Space) on each beat. Statistics and charts update after every click.</p>
+
+  <div class="warning" role="note">
+    <b>These numbers have no medical value</b>
+    <p>Everything on this page comes from you clicking along with a pulse you feel. Your reaction time, a missed or double click, losing count, or beats too faint to feel all change the results. The statistics, charts and comments are a rough illustration of your clicks, not a measurement of your heart.</p>
+    <p>Never use this page to decide whether you are safe, whether something is wrong, or whether to take more of anything. If you feel unwell, trust how you feel over any number here.</p>
+  </div>
+
+  <button id="pad" aria-label="Record a click">
+    <div id="big">—<small>ms</small></div>
+    <div id="sub">Waiting for first click</div>
+  </button>
+
+  <div class="actions">
+    <button id="undo">Undo last</button>
+    <button id="copy">Copy intervals</button>
+    <button id="copyStats">Copy statistics</button>
+    <button id="reset">Reset</button>
+  </div>
+  <div id="toast" role="status"></div>
+
+  <div class="card" id="statsCard">
+    <div class="group">
+      <p class="group-title">Spread</p>
+      <div class="tiles" id="tSpread"></div>
+    </div>
+    <div class="group">
+      <p class="group-title">Centre</p>
+      <div class="tiles" id="tCentre"></div>
+    </div>
+    <div class="group">
+      <p class="group-title">Beat-to-beat variability</p>
+      <div class="tiles" id="tHrv"></div>
+    </div>
+  </div>
+
+  <div class="card" id="interpCard">
+    <h2>What the numbers suggest</h2>
+    <p class="desc">An automatic reading of your statistics against common reference ranges. It is a guide, not a diagnosis.</p>
+    <p class="mini-warn">Reminder: these comments are based on hand clicks, not a sensor, and can't confirm or rule out anything.</p>
+    <label class="ctx">Situation
+      <select id="ctx">
+        <optgroup label="No substances">
+          <option value="rest">At rest (sitting or lying calmly for 5+ minutes)</option>
+          <option value="active">During or just after physical activity</option>
+        </optgroup>
+        <optgroup label="Stimulants">
+          <option value="amph">Amphetamine / methamphetamine</option>
+          <option value="cath">Synthetic cathinones (MDPV, a-PHP, 3-MMC, mephedrone…)</option>
+          <option value="coke">Cocaine / crack</option>
+          <option value="caff">Caffeine, energy drinks or nicotine</option>
+        </optgroup>
+        <optgroup label="Entactogens">
+          <option value="mdma">MDMA / ecstasy (and similar)</option>
+        </optgroup>
+        <optgroup label="Psychedelics and dissociatives">
+          <option value="psy">Psychedelics (LSD, psilocybin, 2C-x…)</option>
+          <option value="diss">Dissociatives (ketamine, DXM, MXE…)</option>
+        </optgroup>
+        <optgroup label="Cannabinoids">
+          <option value="weed">Cannabis</option>
+          <option value="synth">Synthetic cannabinoids ("spice", K2…)</option>
+        </optgroup>
+        <optgroup label="Depressants">
+          <option value="alc">Alcohol</option>
+          <option value="opi">Opioids (heroin, fentanyl, oxycodone, methadone…)</option>
+          <option value="benzo">Benzodiazepines / GHB / GBL</option>
+        </optgroup>
+        <optgroup label="Other">
+          <option value="mix">More than one substance</option>
+        </optgroup>
+      </select>
+    </label>
+    <div id="profileBox" class="profile"></div>
+    <ul class="findings" id="findings"></ul>
+    <div class="urgent">Call emergency services (112 in Europe, or your local number) if there is chest pain or tightness, fainting, seizures, a very high body temperature, severe breathlessness, confusion, or if someone is very drowsy, can't be woken, or is breathing slowly or with gurgling or snoring sounds. If opioids might be involved, give naloxone if available. Put an unconscious person who is breathing in the recovery position and stay with them. Tell responders what was taken. Don't wait for a reading from this page. Harm reduction info: <span style="white-space:nowrap">tripsit.me</span>, <span style="white-space:nowrap">dancesafe.org</span>, <span style="white-space:nowrap">psychonautwiki.org</span>.</div>
+  </div>
+
+  <div class="card">
+    <h2>Heart rate by beat</h2>
+    <p class="desc">Each point is the instantaneous rate for one beat (bpm). The dashed line is the mean and the shaded band is ±1 standard deviation.</p>
+    <div id="cLine"></div>
+    <div class="legend">
+      <span class="lg-line">Rate</span>
+      <span class="lg-mean">Mean</span>
+      <span class="lg-band">±1 SD</span>
+      <span class="lg-ring">Min / max</span>
+    </div>
+  </div>
+
+  <div class="charts-pair">
+    <div class="card">
+      <h2>Distribution</h2>
+      <p class="desc">How many beats fall in each heart-rate range.</p>
+      <div id="cHist"></div>
+    </div>
+    <div class="card">
+      <h2>Poincaré plot</h2>
+      <p class="desc">Each beat’s rate against the next one. A tight cluster on the diagonal means a steady rhythm.</p>
+      <div id="cPoin"></div>
+      <div class="legend">
+        <span class="lg-id">Equal rate</span>
+        <span class="lg-ell">SD1 / SD2 ellipse</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="tablewrap" style="margin-top:14px">
+    <div class="empty" id="empty">No intervals yet. Two clicks give your first one.</div>
+    <table id="tbl" hidden>
+      <thead><tr><th>#</th><th>Duration (ms)</th><th>Seconds</th><th>BPM</th><th>Δ vs previous (ms)</th></tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+  </div>
+
+  <details>
+    <summary>What do these values mean?</summary>
+    <dl>
+      <dt>Range</dt><dd>Longest interval minus shortest interval.</dd>
+      <dt>Standard deviation (SD) and variance</dt><dd>How far intervals typically sit from the mean. Sample formula (divides by n − 1). Variance is SD squared. In heart-rate research the SD of all intervals is called SDNN.</dd>
+      <dt>CV</dt><dd>Coefficient of variation: SD divided by the mean, as a percentage. It lets you compare variability between people or heart rates.</dd>
+      <dt>IQR</dt><dd>Interquartile range: the spread of the middle 50% of intervals. Less affected by one odd beat than the range.</dd>
+      <dt>BPM</dt><dd>60 000 divided by the interval in ms. Mean BPM uses the mean interval. The slowest beat is the longest interval, the fastest is the shortest.</dd>
+      <dt>RMSSD</dt><dd>Root mean square of successive differences. The most common short-term heart-rate-variability measure.</dd>
+      <dt>SDSD</dt><dd>Standard deviation of the successive differences.</dd>
+      <dt>pNN50</dt><dd>Share of successive intervals that differ by more than 50 ms.</dd>
+      <dt>SD1 and SD2</dt><dd>Width (SD1, short-term) and length (SD2, long-term) of the Poincaré ellipse.</dd>
+    </dl>
+    <p class="note">Measuring by hand clicks adds reaction-time noise of roughly 20–50 ms, so variability values (especially RMSSD and pNN50) will read higher than a real ECG or chest-strap would give. Use this for relative comparisons, not diagnosis.</p>
+  </details>
+</main>
+
+<script>
+(function () {
+  var pad = document.getElementById('pad');
+  var big = document.getElementById('big');
+  var sub = document.getElementById('sub');
+  var rows = document.getElementById('rows');
+  var tbl = document.getElementById('tbl');
+  var empty = document.getElementById('empty');
+  var toast = document.getElementById('toast');
+
+  var last = null, prevLast = null, intervals = [];
+  var lastStats = null;
+
+  function fmt(n, d) { return n.toFixed(d); }
+  function dash(v, d) { return v === null || !isFinite(v) ? '—' : fmt(v, d); }
+
+  /* ---------- statistics ---------- */
+  function quantile(sorted, p) {
+    var pos = (sorted.length - 1) * p, lo = Math.floor(pos), hi = Math.ceil(pos);
+    return sorted[lo] + (sorted[hi] - sorted[lo]) * (pos - lo);
+  }
+  function sampleSD(arr) {
+    var n = arr.length; if (n < 2) return null;
+    var m = arr.reduce(function (a, b) { return a + b; }, 0) / n;
+    var s = arr.reduce(function (a, b) { return a + (b - m) * (b - m); }, 0);
+    return Math.sqrt(s / (n - 1));
+  }
+  function compute(x) {
+    var n = x.length; if (!n) return null;
+    var sum = x.reduce(function (a, b) { return a + b; }, 0);
+    var mean = sum / n;
+    var sorted = x.slice().sort(function (a, b) { return a - b; });
+    var min = sorted[0], max = sorted[n - 1];
+    var sd = sampleSD(x);
+    var diffs = [];
+    for (var i = 1; i < n; i++) diffs.push(x[i] - x[i - 1]);
+    var m = diffs.length;
+    var rmssd = m ? Math.sqrt(diffs.reduce(function (a, d) { return a + d * d; }, 0) / m) : null;
+    var sdsd = sampleSD(diffs);
+    var pnn50 = m ? diffs.filter(function (d) { return Math.abs(d) > 50; }).length / m * 100 : null;
+    var sd1 = sdsd === null ? null : sdsd / Math.SQRT2;
+    var sd2 = (sd !== null && sdsd !== null) ? Math.sqrt(Math.max(0, 2 * sd * sd - 0.5 * sdsd * sdsd)) : null;
+    return {
+      n: n, mean: mean, median: quantile(sorted, 0.5), min: min, max: max, range: max - min,
+      sd: sd, variance: sd === null ? null : sd * sd, cv: sd === null ? null : sd / mean * 100,
+      iqr: n > 1 ? quantile(sorted, 0.75) - quantile(sorted, 0.25) : null,
+      bpmMean: 60000 / mean, bpmFast: 60000 / min, bpmSlow: 60000 / max,
+      rmssd: rmssd, sdsd: sdsd, pnn50: pnn50, sd1: sd1, sd2: sd2
+    };
+  }
+
+  /* ---------- tiles ---------- */
+  function tile(label, value, unit, tip) {
+    return '<div class="tile" title="' + tip + '"><b>' + value + (unit && value !== '—' ? '<i>' + unit + '</i>' : '') + '</b><span>' + label + '</span></div>';
+  }
+  function renderTiles(s) {
+    var q = function (k, d) { return s ? dash(s[k], d) : '—'; };
+    document.getElementById('tSpread').innerHTML =
+      tile('Shortest', q('min', 0), 'ms', 'Minimum interval') +
+      tile('Longest', q('max', 0), 'ms', 'Maximum interval') +
+      tile('Range', q('range', 0), 'ms', 'Longest minus shortest') +
+      tile('Std deviation', q('sd', 1), 'ms', 'Sample standard deviation (SDNN)') +
+      tile('Variance', q('variance', 0), 'ms²', 'Sample variance') +
+      tile('CV', q('cv', 1), '%', 'Coefficient of variation: SD / mean') +
+      tile('IQR', q('iqr', 0), 'ms', 'Interquartile range (Q3 − Q1)');
+    document.getElementById('tCentre').innerHTML =
+      tile('Intervals', s ? s.n : '0', '', 'Number of measured intervals') +
+      tile('Mean', q('mean', 1), 'ms', 'Average interval') +
+      tile('Median', q('median', 1), 'ms', 'Middle interval') +
+      tile('Mean BPM', q('bpmMean', 1), 'bpm', '60000 / mean interval') +
+      tile('Fastest BPM', q('bpmFast', 1), 'bpm', 'From the shortest interval') +
+      tile('Slowest BPM', q('bpmSlow', 1), 'bpm', 'From the longest interval');
+    document.getElementById('tHrv').innerHTML =
+      tile('RMSSD', q('rmssd', 1), 'ms', 'Root mean square of successive differences') +
+      tile('SDSD', q('sdsd', 1), 'ms', 'Standard deviation of successive differences') +
+      tile('pNN50', q('pnn50', 1), '%', 'Share of successive differences above 50 ms') +
+      tile('SD1', q('sd1', 1), 'ms', 'Poincaré short-term variability') +
+      tile('SD2', q('sd2', 1), 'ms', 'Poincaré long-term variability');
+  }
+
+  /* ---------- chart helpers ---------- */
+  function niceScale(min, max, count, integer) {
+    if (min === max) { min -= 1; max += 1; }
+    var rough = (max - min) / count;
+    var mag = Math.pow(10, Math.floor(Math.log10(rough)));
+    var r = rough / mag;
+    var step = (r <= 1 ? 1 : r <= 2 ? 2 : r <= 2.5 ? 2.5 : r <= 5 ? 5 : 10) * mag;
+    if (integer && step < 1) step = 1;
+    var lo = Math.floor(min / step + 1e-9) * step, hi = Math.ceil(max / step - 1e-9) * step;
+    var ticks = [];
+    for (var v = lo; v <= hi + step / 1000; v += step) ticks.push(parseFloat(v.toPrecision(12)));
+    return { lo: lo, hi: hi, ticks: ticks };
+  }
+  function num(v) { return Math.abs(v) >= 100 || v % 1 === 0 ? String(Math.round(v)) : String(parseFloat(v.toFixed(1))); }
+  function svgOpen(w, h) { return '<svg class="chart" viewBox="0 0 ' + w + ' ' + h + '" role="img" xmlns="http://www.w3.org/2000/svg">'; }
+  function placeholder(msg, h) {
+    return '<div class="empty" style="min-height:' + h + 'px;display:flex;align-items:center;justify-content:center">' + msg + '</div>';
+  }
+
+  /* ---------- line chart (BPM) ---------- */
+  function lineChart(x, s) {
+    var el = document.getElementById('cLine');
+    if (!x.length) { el.innerHTML = placeholder('The chart appears after your first interval.', 200); return; }
+    var bpm = x.map(function (v) { return 60000 / v; });
+    var W = 640, H = 260, L = 48, R = 14, T = 14, B = 32;
+    // reference values in BPM
+    var meanB = s.bpmMean;                                    // 60000 / mean interval
+    var bandLo = s.sd !== null ? 60000 / (s.mean + s.sd) : null; // slower edge
+    var bandHi = s.sd !== null ? 60000 / (s.mean - s.sd) : null; // faster edge
+    var lo = s.bpmFast, hi = s.bpmFast;                        // bpmFast = max bpm, bpmSlow = min bpm
+    bpm.forEach(function (v) { lo = Math.min(lo, v); hi = Math.max(hi, v); });
+    if (bandLo !== null) { lo = Math.min(lo, bandLo); hi = Math.max(hi, bandHi); }
+    var pad = Math.max((hi - lo) * 0.08, 2);
+    var ys = niceScale(lo - pad, hi + pad, 5);
+    var n = x.length;
+    var px = function (i) { return n > 1 ? L + i / (n - 1) * (W - L - R) : L + (W - L - R) / 2; };
+    var py = function (v) { return T + (ys.hi - v) / (ys.hi - ys.lo) * (H - T - B); };
+    var o = svgOpen(W, H);
+    ys.ticks.forEach(function (t) {
+      o += '<line class="grid" x1="' + L + '" x2="' + (W - R) + '" y1="' + py(t) + '" y2="' + py(t) + '"/>';
+      o += '<text x="' + (L - 6) + '" y="' + (py(t) + 4) + '" text-anchor="end">' + num(t) + '</text>';
+    });
+    var stepX = Math.max(1, Math.ceil(n / 8));
+    for (var i = 0; i < n; i += stepX) {
+      o += '<text x="' + px(i) + '" y="' + (H - B + 16) + '" text-anchor="middle">' + (i + 1) + '</text>';
+    }
+    o += '<text x="' + (L + (W - L - R) / 2) + '" y="' + (H - 2) + '" text-anchor="middle">Beat number</text>';
+    o += '<text x="12" y="' + (T + (H - T - B) / 2) + '" text-anchor="middle" transform="rotate(-90 12 ' + (T + (H - T - B) / 2) + ')">bpm</text>';
+    if (bandLo !== null && bandHi > bandLo) {
+      o += '<rect x="' + L + '" y="' + py(bandHi) + '" width="' + (W - L - R) + '" height="' + (py(bandLo) - py(bandHi)) + '" style="fill:var(--blue);opacity:.2"/>';
+    }
+    o += '<line x1="' + L + '" x2="' + (W - R) + '" y1="' + py(meanB) + '" y2="' + py(meanB) + '" style="stroke:var(--ink);stroke-width:1.5;stroke-dasharray:6 4"/>';
+    if (n > 1) {
+      var d = bpm.map(function (v, i) { return (i ? 'L' : 'M') + px(i).toFixed(1) + ' ' + py(v).toFixed(1); }).join('');
+      o += '<path d="' + d + '" style="fill:none;stroke:var(--accent);stroke-width:2;stroke-linejoin:round"/>';
+    }
+    var r = n > 40 ? 2 : 3.5, imin = x.indexOf(s.min), imax = x.indexOf(s.max);
+    bpm.forEach(function (v, i) {
+      o += '<circle cx="' + px(i) + '" cy="' + py(v) + '" r="' + r + '" style="fill:var(--accent)"><title>#' + (i + 1) + ': ' + fmt(v, 1) + ' bpm (' + fmt(x[i], 0) + ' ms)</title></circle>';
+    });
+    if (s.range > 0) {
+      // imin = shortest interval = fastest bpm; imax = longest interval = slowest bpm
+      [imin, imax].forEach(function (i) {
+        o += '<circle cx="' + px(i) + '" cy="' + py(bpm[i]) + '" r="' + (r + 4) + '" style="fill:none;stroke:var(--ink);stroke-width:2"/>';
+      });
+    }
+    o += '</svg>';
+    el.innerHTML = o;
+  }
+
+  /* ---------- histogram (BPM) ---------- */
+  function histChart(x, s) {
+    var el = document.getElementById('cHist');
+    if (!x.length) { el.innerHTML = placeholder('Waiting for data.', 200); return; }
+    var bpm = x.map(function (v) { return 60000 / v; });
+    var bmin = s.bpmFast, bmax = s.bpmFast;  // start from a real value
+    bpm.forEach(function (v) { bmin = Math.min(bmin, v); bmax = Math.max(bmax, v); });
+    var W = 320, H = 260, L = 34, R = 10, T = 12, B = 44;
+    var brange = bmax - bmin;
+    var xs = niceScale(bmin - Math.max(brange * 0.05, 1), bmax + Math.max(brange * 0.05, 1), 5);
+    var k = Math.min(15, Math.max(4, Math.ceil(Math.sqrt(x.length))));
+    var bw = (xs.hi - xs.lo) / k, counts = [];
+    for (var i = 0; i < k; i++) counts.push(0);
+    bpm.forEach(function (v) { var b = Math.min(k - 1, Math.floor((v - xs.lo) / bw)); counts[b]++; });
+    var cmax = Math.max.apply(null, counts);
+    var ys = niceScale(0, cmax, 4, true);
+    var px = function (v) { return L + (v - xs.lo) / (xs.hi - xs.lo) * (W - L - R); };
+    var py = function (v) { return T + (ys.hi - v) / (ys.hi - ys.lo) * (H - T - B); };
+    var o = svgOpen(W, H);
+    ys.ticks.forEach(function (t) {
+      o += '<line class="grid" x1="' + L + '" x2="' + (W - R) + '" y1="' + py(t) + '" y2="' + py(t) + '"/>';
+      o += '<text x="' + (L - 6) + '" y="' + (py(t) + 4) + '" text-anchor="end">' + num(t) + '</text>';
+    });
+    counts.forEach(function (c, i) {
+      if (!c) return;
+      var x0 = px(xs.lo + i * bw) + 1, x1 = px(xs.lo + (i + 1) * bw) - 1;
+      o += '<rect x="' + x0 + '" y="' + py(c) + '" width="' + Math.max(1, x1 - x0) + '" height="' + (py(0) - py(c)) + '" rx="2" style="fill:var(--accent)"><title>' + fmt(xs.lo + i * bw, 0) + '–' + fmt(xs.lo + (i + 1) * bw, 0) + ' bpm: ' + c + '</title></rect>';
+    });
+    xs.ticks.forEach(function (t) {
+      o += '<text x="' + px(t) + '" y="' + (H - B + 16) + '" text-anchor="middle">' + num(t) + '</text>';
+    });
+    o += '<line class="axis" x1="' + L + '" x2="' + (W - R) + '" y1="' + py(0) + '" y2="' + py(0) + '"/>';
+    if (x.length > 1) {
+      o += '<line x1="' + px(s.bpmMean) + '" x2="' + px(s.bpmMean) + '" y1="' + T + '" y2="' + py(0) + '" style="stroke:var(--ink);stroke-width:1.5;stroke-dasharray:6 4"/>';
+    }
+    o += '<text x="' + (L + (W - L - R) / 2) + '" y="' + (H - 4) + '" text-anchor="middle">Heart rate (bpm), dashed = mean</text>';
+    o += '</svg>';
+    el.innerHTML = o;
+  }
+
+  /* ---------- Poincaré (BPM) ---------- */
+  function poincare(x, s) {
+    var el = document.getElementById('cPoin');
+    if (x.length < 2) { el.innerHTML = placeholder('Needs at least 2 intervals (3 clicks).', 200); return; }
+    var bpm = x.map(function (v) { return 60000 / v; });
+    // ellipse parameters computed directly in BPM space for accuracy
+    var mean = bpm.reduce(function (a, b) { return a + b; }, 0) / bpm.length;
+    var sdB = sampleSD(bpm);
+    var dB = [];
+    for (var j = 1; j < bpm.length; j++) dB.push(bpm[j] - bpm[j - 1]);
+    var sdsdB = sampleSD(dB);
+    var sd1 = sdsdB === null ? null : sdsdB / Math.SQRT2;
+    var sd2 = (sdB !== null && sdsdB !== null) ? Math.sqrt(Math.max(0, 2 * sdB * sdB - 0.5 * sdsdB * sdsdB)) : null;
+    var bmin = Math.min.apply(null, bpm), bmax = Math.max.apply(null, bpm), brange = bmax - bmin;
+    var W = 320, H = 320, L = 44, R = 12, T = 12, B = 40;
+    var sc = niceScale(bmin - Math.max(brange * 0.1, 2), bmax + Math.max(brange * 0.1, 2), 4);
+    var pw = W - L - R, ph = H - T - B;
+    var px = function (v) { return L + (v - sc.lo) / (sc.hi - sc.lo) * pw; };
+    var py = function (v) { return T + (sc.hi - v) / (sc.hi - sc.lo) * ph; };
+    var o = svgOpen(W, H);
+    sc.ticks.forEach(function (t) {
+      o += '<line class="grid" x1="' + L + '" x2="' + (W - R) + '" y1="' + py(t) + '" y2="' + py(t) + '"/>';
+      o += '<line class="grid" y1="' + T + '" y2="' + (H - B) + '" x1="' + px(t) + '" x2="' + px(t) + '"/>';
+      o += '<text x="' + (L - 6) + '" y="' + (py(t) + 4) + '" text-anchor="end">' + num(t) + '</text>';
+      o += '<text x="' + px(t) + '" y="' + (H - B + 16) + '" text-anchor="middle">' + num(t) + '</text>';
+    });
+    o += '<line x1="' + px(sc.lo) + '" y1="' + py(sc.lo) + '" x2="' + px(sc.hi) + '" y2="' + py(sc.hi) + '" style="stroke:var(--muted);stroke-width:1.5;stroke-dasharray:5 4"/>';
+    if (sd1 !== null && sd2 !== null && sd1 > 0 && sd2 > 0) {
+      var k = pw / (sc.hi - sc.lo);
+      o += '<ellipse cx="' + px(mean) + '" cy="' + py(mean) + '" rx="' + (sd2 * k) + '" ry="' + (sd1 * k) + '" transform="rotate(-45 ' + px(mean) + ' ' + py(mean) + ')" style="fill:var(--blue);fill-opacity:.15;stroke:var(--blue);stroke-width:2"/>';
+    }
+    for (var i = 0; i < bpm.length - 1; i++) {
+      o += '<circle cx="' + px(bpm[i]) + '" cy="' + py(bpm[i + 1]) + '" r="' + (bpm.length > 60 ? 2.5 : 4) + '" style="fill:var(--accent)"><title>#' + (i + 1) + ' → #' + (i + 2) + ': ' + fmt(bpm[i], 1) + ' → ' + fmt(bpm[i + 1], 1) + ' bpm</title></circle>';
+    }
+    o += '<text x="' + (L + pw / 2) + '" y="' + (H - 4) + '" text-anchor="middle">Beat n (bpm)</text>';
+    o += '<text x="12" y="' + (T + ph / 2) + '" text-anchor="middle" transform="rotate(-90 12 ' + (T + ph / 2) + ')">Beat n+1 (bpm)</text>';
+    o += '</svg>';
+    el.innerHTML = o;
+  }
+
+  /* ---------- rhythm classifier ---------- */
+  // Returns { label, level, text } describing regular vs irregular.
+  function classifyRhythm(s, x) {
+    if (!s || s.n < 5 || s.rmssd === null) return null;
+    var nr = s.rmssd / s.mean;              // normalised beat-to-beat change
+    var cv = s.cv / 100;                     // overall spread as fraction of mean
+    // count beats far from the median and the short-beat-then-pause pattern
+    var med = s.median, odd = 0, ectopic = 0;
+    for (var i = 0; i < x.length; i++) {
+      if (Math.abs(x[i] - med) / med > 0.2) odd++;
+      if (i < x.length - 1 && x[i] < 0.8 * med && x[i + 1] > 1.15 * med) ectopic++;
+    }
+    var oddFrac = odd / x.length;
+    if (nr >= 0.15 && oddFrac >= 0.25 && ectopic <= 1) {
+      return { label: 'Irregularly irregular', level: 'flag',
+        text: 'Beats vary a lot with no steady pattern (normalised RMSSD ' + fmt(nr * 100, 1) + '%, ' + odd + ' of ' + x.length + ' beats far from typical). This "irregularly irregular" pattern is what atrial fibrillation looks like, and AF risk rises with stimulant use. Clicking error can mimic it, so re-measure carefully; if it persists, treat it as a reason to get an ECG and seek care.' };
+    }
+    if (ectopic >= 2 || (odd > 0 && nr >= 0.1)) {
+      return { label: 'Occasional irregular beats', level: 'note',
+        text: 'Mostly steady with ' + (ectopic ? ectopic + ' ' : 'some ') + 'short-beat-then-pause pattern(s), the usual look of extra (premature) beats. Common and often harmless, but stimulants make them more frequent. Watch whether they increase.' };
+    }
+    if (nr >= 0.07) {
+      return { label: 'Mildly variable but patterned', level: 'note',
+        text: 'Some variation (normalised RMSSD ' + fmt(nr * 100, 1) + '%), which can be normal breathing-linked variation or click timing. No clear irregular pattern.' };
+    }
+    return { label: 'Regular', level: 'ok',
+      text: 'Beats are evenly spaced (normalised RMSSD ' + fmt(nr * 100, 1) + '%, spread ' + fmt(cv * 100, 1) + '%), consistent with a normal regular rhythm.' };
+  }
+
+  /* ---------- drug-class profiles ----------
+     Each profile describes, in plain terms, how that class typically affects the
+     heart, plus a 'rate' behaviour type the interpreter uses to pick thresholds
+     and wording. These are general tendencies, not rules: dose, purity, mixing,
+     tolerance and the person all change it. */
+  var DRUG = {
+    rest:  { name: 'at rest', rate: 'rest',
+      effect: 'No substances selected. A calm resting adult is usually 60–100 bpm with a steady rhythm.' },
+    active:{ name: 'during activity', rate: 'active',
+      effect: 'Physical activity raises heart rate; resting ranges don\u2019t apply. Rate falls back toward baseline within minutes of stopping.' },
+    amph:  { name: 'amphetamine / meth', rate: 'stim',
+      effect: 'Strong, long-lasting stimulant. Typically speeds the heart and raises blood pressure for hours; can trigger palpitations, extra beats or dangerous rhythms, and raises body temperature, especially when active or redosing.' },
+    cath:  { name: 'synthetic cathinones', rate: 'stim',
+      effect: 'MDPV, a-PHP, 3-MMC and similar are potent, often short and compulsive to redose. Heart rate and blood pressure can climb steeply and stay high; overheating and chest symptoms are common at higher doses.' },
+    coke:  { name: 'cocaine', rate: 'stim',
+      effect: 'Short-acting stimulant that raises heart rate and blood pressure in sharp peaks and narrows blood vessels. Chest pain after use is a recognised emergency even in young people. Mixing with alcohol (cocaethylene) adds strain.' },
+    caff:  { name: 'caffeine / nicotine', rate: 'stimlite',
+      effect: 'Mild stimulant. Usually a modest rate rise and sometimes palpitations at high doses; rarely dangerous in healthy people but can feel alarming.' },
+    mdma:  { name: 'MDMA', rate: 'stim',
+      effect: 'Stimulant and entactogen. Raises heart rate, blood pressure and body temperature, more so when dancing in heat. Overheating and drinking too much or too little water are the main risks alongside the cardiac load.' },
+    psy:   { name: 'psychedelics', rate: 'mildup',
+      effect: 'LSD, psilocybin and 2C-x usually cause only a mild rate and blood-pressure rise. Anxiety or a difficult experience can push the rate up more than the drug itself. Serious cardiac events are uncommon in healthy people.' },
+    diss:  { name: 'dissociatives', rate: 'variable',
+      effect: 'Ketamine and similar often raise heart rate and blood pressure modestly; the bigger risks are reduced awareness, falls and, with sedation, a quieter breathing drive. Effects vary a lot with dose.' },
+    weed:  { name: 'cannabis', rate: 'mildup',
+      effect: 'Often a clear rate rise in the first hour, sometimes 20–50 bpm above baseline, then it settles. Usually benign in healthy people but can feel like palpitations and is harder on an already-strained heart.' },
+    synth: { name: 'synthetic cannabinoids', rate: 'stim',
+      effect: '"Spice"/K2 are unpredictable and much stronger than cannabis. Racing heart, very high or low rates, chest pain and collapse have all been reported. Treat any strong reaction seriously.' },
+    alc:   { name: 'alcohol', rate: 'variable',
+      effect: 'Depressant overall, but a rising or binge level often speeds the heart and can trigger an irregular rhythm ("holiday heart"). Heavy use blunts the breathing drive and, combined with other depressants, that becomes dangerous.' },
+    opi:   { name: 'opioids', rate: 'brady',
+      effect: 'The main danger is breathing, not heart rate: opioids slow and weaken breathing, and the heart slows as a result. A slow pulse with slow, shallow or gurgling breathing is an overdose until proven otherwise. Naloxone reverses it.' },
+    benzo: { name: 'benzodiazepines / GHB', rate: 'sed',
+      effect: 'Sedatives that slow heart rate and breathing and cause deep sleep. On their own, overdose is often survivable; mixed with alcohol or opioids the breathing risk rises sharply. GHB has a very narrow safe dose.' },
+    mix:   { name: 'a mix', rate: 'mix',
+      effect: 'Combinations are unpredictable. A stimulant can mask how sedated you are (and vice-versa), and depressants stacked together multiply the breathing risk. No simple rate range applies.' }
+  };
+
+  function renderProfile(ctx) {
+    var d = DRUG[ctx], box = document.getElementById('profileBox');
+    if (!d || ctx === 'rest') { box.innerHTML = ''; return; }
+    box.innerHTML = '<b>How the heart tends to behave: ' + d.name + '</b><p>' + d.effect + '</p>';
+  }
+
+  /* ---------- rate interpretation by class behaviour ---------- */
+  function rateFinding(type, bpm, b, add) {
+    var faint = ' If you feel faint, very drowsy, breathless, or have chest pain, treat how you feel as more important than this number.';
+    if (type === 'rest') {
+      if (bpm < 40) add('flag', 'Very slow heart rate', 'Around ' + b + ' bpm is below 40, unusual even for athletes.' + faint);
+      else if (bpm < 60) add('note', 'Slower than 60 bpm', 'Around ' + b + ' bpm. Common and healthy in fit people and in sleep; worth checking if you also feel dizzy or very tired.');
+      else if (bpm <= 100) add('ok', 'Within the usual resting range', 'Around ' + b + ' bpm sits in the typical 60–100 bpm adult resting range.');
+      else if (bpm <= 120) add('note', 'Above 100 bpm at rest', 'Around ' + b + ' bpm. Caffeine, stress, fever or recent movement often explain this. Re-measure after 5 calm minutes.');
+      else add('flag', 'Fast for a resting reading', 'Around ' + b + ' bpm is high at rest. Re-measure calmly; if it stays high or comes with symptoms, get medical advice.');
+      return;
+    }
+    if (type === 'active') {
+      if (bpm > 200) add('flag', 'Very high rate', 'Around ' + b + ' bpm is above what most adults reach at maximum effort — check your clicks; if real, stop and seek advice.');
+      else add('info', 'Rate during activity', 'Around ' + b + ' bpm. During exercise, rates up to roughly 220 minus your age are expected.');
+      return;
+    }
+    if (type === 'stim') {
+      if (bpm > 150) add('flag', 'Very fast — take it seriously', 'Around ' + b + ' bpm is very high. Sustained rates like this on strong stimulants strain the heart and raise the risk of a dangerous rhythm. Stop using, move somewhere cool, sip water, sit or lie down and breathe slowly. If it won\u2019t come down, or there is chest pain, breathlessness, a pounding or irregular pulse, confusion or overheating, call emergency services.');
+      else if (bpm > 120) add('flag', 'Fast heart rate', 'Around ' + b + ' bpm is well above resting. Expected on stimulants but hard on the heart. Rest in a cool place, hydrate, and don\u2019t redose. Re-check later; if it keeps climbing, get help.');
+      else if (bpm > 100) add('note', 'Mildly fast', 'Around ' + b + ' bpm, above the resting range, as expected while a stimulant is active. Stay cool and hydrated and avoid redosing.');
+      else if (bpm >= 55) add('ok', 'Rate in the normal range', 'Around ' + b + ' bpm. Reassuring, but stimulant levels rise and fall, so keep checking how you feel rather than trusting one reading.');
+      else add('note', 'Slow for a stimulant', 'Around ' + b + ' bpm is low. This can happen on a comedown or if something sedating is also on board.' + faint);
+      return;
+    }
+    if (type === 'stimlite') {
+      if (bpm > 130) add('flag', 'Fast heart rate', 'Around ' + b + ' bpm is high for caffeine or nicotine. Stop intake, rest and hydrate; if it persists or you feel palpitations or chest discomfort, get advice.');
+      else if (bpm > 100) add('note', 'Mildly fast', 'Around ' + b + ' bpm. A modest rise is typical with caffeine or nicotine. It should settle as the effect wears off.');
+      else add('ok', 'Rate in the normal range', 'Around ' + b + ' bpm.');
+      return;
+    }
+    if (type === 'mildup') {
+      if (bpm > 140) add('flag', 'Faster than expected', 'Around ' + b + ' bpm is high even allowing for the usual rise. Anxiety often drives this up; sit somewhere calm and breathe slowly. If it stays high or you have chest discomfort, get advice.');
+      else if (bpm > 100) add('note', 'Raised rate', 'Around ' + b + ' bpm. A rate rise in the first hour is common and usually settles. Staying calm and seated helps.');
+      else add('ok', 'Rate in the normal range', 'Around ' + b + ' bpm.');
+      return;
+    }
+    if (type === 'variable') {
+      if (bpm > 130) add('flag', 'Fast heart rate', 'Around ' + b + ' bpm is high. A fast or irregular pulse with alcohol or dissociatives is worth taking seriously, especially with chest symptoms.');
+      else if (bpm > 100) add('note', 'Raised rate', 'Around ' + b + ' bpm, above resting. Can happen as levels rise. Hydrate (sip, don\u2019t overdo it) and avoid stacking other substances.');
+      else if (bpm >= 50) add('ok', 'Rate in the normal range', 'Around ' + b + ' bpm.');
+      else add('flag', 'Slow heart rate', 'Around ' + b + ' bpm is low. With depressants a slowing pulse can go with slowed breathing.' + faint);
+      return;
+    }
+    if (type === 'brady') {
+      if (bpm < 50) add('flag', 'Slow pulse — check breathing now', 'Around ' + b + ' bpm is slow. With opioids the real danger is breathing. If breathing is slow, shallow, gurgling or snoring, or the person is hard to wake, treat it as an overdose: call emergency services, give naloxone if available, and put them on their side. Don\u2019t rely on this number.');
+      else if (bpm < 60) add('note', 'On the slow side', 'Around ' + b + ' bpm. Opioids slow the pulse and, more importantly, breathing. Keep checking that breathing is normal and someone stays with the person.');
+      else add('info', 'Rate recorded', 'Around ' + b + ' bpm. With opioids, a normal-looking rate is not reassurance on its own — breathing rate and depth matter more. Watch those.');
+      return;
+    }
+    if (type === 'sed') {
+      if (bpm < 50) add('flag', 'Slow pulse with sedatives', 'Around ' + b + ' bpm is slow. Benzodiazepines, GHB and alcohol slow breathing too, and the danger multiplies if they are mixed. If the person is deeply asleep, hard to wake, or breathing slowly, call for help and put them on their side.');
+      else if (bpm < 60) add('note', 'On the slow side', 'Around ' + b + ' bpm, as expected with sedatives. Make sure the person can be roused and is breathing normally, and avoid mixing with other depressants.');
+      else add('info', 'Rate recorded', 'Around ' + b + ' bpm. With sedatives, how rousable the person is and their breathing matter more than this number.');
+      return;
+    }
+    // mix / fallback
+    if (bpm > 130) add('flag', 'Fast heart rate', 'Around ' + b + ' bpm is high. With a mix of substances, effects are unpredictable — don\u2019t take more, get somewhere safe with someone you trust, and seek help if you feel unwell.');
+    else if (bpm < 50) add('flag', 'Slow heart rate', 'Around ' + b + ' bpm is low. If any depressant or opioid is involved, watch breathing closely and be ready to call for help.');
+    else add('info', 'Rate recorded', 'Around ' + b + ' bpm. With combinations, no single range means much; judge by how the person looks and feels.');
+  }
+
+  /* ---------- interpretation ---------- */
+  var ctxSel = document.getElementById('ctx');
+  function interpret(s, x) {
+    var out = [], ctx = ctxSel.value, prof = DRUG[ctx] || DRUG.rest;
+    function add(level, title, text) { out.push({ level: level, title: title, text: text }); }
+    if (!s || s.n < 5) {
+      add('info', 'Not enough data yet', 'Record at least 5 intervals to see a reading. For a reliable one, sit still and click along with your pulse for 30–60 seconds (30+ intervals).');
+      return out;
+    }
+    var bpm = s.bpmMean, b = fmt(bpm, 0);
+
+    // data quality
+    if (s.n < 30) add('note', 'Limited data', 'Based on ' + s.n + ' intervals. 30 or more (about 30–60 seconds) gives a steadier picture — though it is still only your clicks.');
+    else add('ok', 'Enough data points', 'Based on ' + s.n + ' intervals. Remember these still come from hand clicks, not a sensor.');
+
+    // rhythm
+    var rhy = classifyRhythm(s, x);
+    if (rhy) add(rhy.level, 'Rhythm: ' + rhy.label, rhy.text);
+
+    // rate, interpreted against the selected class's behaviour
+    rateFinding(prof.rate, bpm, b, add);
+
+    // unusual individual intervals
+    var med = s.median, odd = 0, pairs = 0, doubles = 0;
+    for (var i = 0; i < x.length; i++) {
+      if (Math.abs(x[i] - med) / med > 0.2) odd++;
+      if (x[i] > 1.8 * med) doubles++;
+      if (i < x.length - 1 && x[i] < 0.8 * med && x[i + 1] > 1.15 * med) pairs++;
+    }
+    if (!odd) add('ok', 'No unusual beats', 'Every interval is within 20% of the median (' + fmt(med, 0) + ' ms).');
+    else {
+      var t = odd + ' interval' + (odd > 1 ? 's differ' : ' differs') + ' from the median by more than 20%.';
+      if (pairs) t += ' ' + pairs + ' look' + (pairs > 1 ? '' : 's') + ' like a short beat followed by a long pause, the typical pattern of an extra (premature) beat. These are common and usually harmless, but frequent ones are worth mentioning to a doctor.';
+      if (doubles) t += ' ' + doubles + ' ' + (doubles > 1 ? 'are' : 'is') + ' about double the usual length, which is most likely a missed click (or, less often, a skipped beat).';
+      t += ' A mistimed or double click looks the same, so check the beat-by-beat chart and use Undo if needed.';
+      add(odd / x.length > 0.15 ? 'flag' : 'note', odd + ' unusual interval' + (odd > 1 ? 's' : ''), t);
+    }
+
+    // HRV level (only meaningful at genuine rest; stimulants and activity distort it)
+    if (ctx === 'rest' && s.rmssd !== null) {
+      var r = fmt(s.rmssd, 0);
+      if (s.rmssd < 20) add('note', 'Low beat-to-beat variability', 'RMSSD ' + r + ' ms. Low resting HRV is linked with stress, poor sleep, illness, dehydration and older age — but hand clicks make this unreliable.');
+      else if (s.rmssd <= 100) add('info', 'Variability in a typical range', 'RMSSD ' + r + ' ms. Resting adult values commonly span about 20–100 ms and fall with age. Clicking adds noise, so treat this loosely.');
+      else add('info', 'High beat-to-beat variability', 'RMSSD ' + r + ' ms. By hand this usually means click error or irregular beats rather than true high HRV; see the rhythm finding above.');
+    } else if (prof.rate !== 'rest' && prof.rate !== 'active' && s.rmssd !== null) {
+      add('info', 'HRV not interpreted here', 'Beat-to-beat variability (RMSSD, SD1) is only meaningful from a sensor at genuine rest. On substances, and measured by hand, the number doesn\u2019t carry a reliable meaning, so it isn\u2019t scored.');
+    }
+    return out;
+  }
+  function renderFindings(s) {
+    var list = interpret(s, intervals);
+    document.getElementById('findings').innerHTML = list.map(function (f) {
+      return '<li class="' + f.level + '"><span class="dot"></span><div><b>' + f.title + '</b><p>' + f.text + '</p></div></li>';
+    }).join('');
+  }
+  ctxSel.addEventListener('change', function () { renderProfile(ctxSel.value); renderFindings(lastStats); });
+  renderProfile(ctxSel.value);
+
+  /* ---------- main render ---------- */
+  function render() {
+    var s = compute(intervals);
+    lastStats = s;
+    rows.innerHTML = '';
+    for (var i = intervals.length - 1; i >= 0; i--) {
+      var ms = intervals[i];
+      var delta = i > 0 ? (ms - intervals[i - 1]) : null;
+      var tr = document.createElement('tr');
+      tr.innerHTML = '<td>' + (i + 1) + '</td><td>' + fmt(ms, 0) + '</td><td>' + fmt(ms / 1000, 3) + '</td><td>' + fmt(60000 / ms, 1) + '</td><td>' + (delta === null ? '—' : (delta > 0 ? '+' : '') + fmt(delta, 0)) + '</td>';
+      rows.appendChild(tr);
+    }
+    var has = intervals.length > 0;
+    tbl.hidden = !has; empty.hidden = has;
+
+    if (has) {
+      var l = intervals[intervals.length - 1];
+      big.innerHTML = fmt(l, 0) + '<small>ms</small>';
+      sub.textContent = fmt(60000 / l, 1) + ' bpm · click again for the next beat';
+    } else {
+      big.innerHTML = '—<small>ms</small>';
+      sub.textContent = last === null ? 'Waiting for first click' : 'Started. Click on the next beat';
+    }
+    renderTiles(s);
+    renderFindings(s);
+    lineChart(intervals, s);
+    histChart(intervals, s);
+    poincare(intervals, s);
+  }
+
+  function hit() {
+    var now = performance.now();
+    prevLast = last;
+    if (last !== null) intervals.push(now - last);
+    last = now;
+    pad.classList.add('hit');
+    setTimeout(function () { pad.classList.remove('hit'); }, 70);
+    render();
+  }
+
+  pad.addEventListener('pointerdown', function (e) {
+    if (e.button !== undefined && e.button > 0) return;
+    e.preventDefault(); hit();
+  });
+  pad.addEventListener('keydown', function (e) {
+    if (e.code === 'Space' || e.code === 'Enter') { e.preventDefault(); if (!e.repeat) hit(); }
+  });
+  pad.addEventListener('click', function (e) { e.preventDefault(); });
+
+  document.getElementById('undo').addEventListener('click', function () {
+    if (intervals.length) { intervals.pop(); last = prevLast; prevLast = null; }
+    else if (last !== null) { last = null; }
+    render();
+  });
+  document.getElementById('reset').addEventListener('click', function () {
+    intervals = []; last = null; prevLast = null; toast.textContent = ''; render();
+  });
+
+  function copyText(text, okMsg) {
+    var fail = function () { toast.textContent = 'Copy blocked by the browser. Select the values and copy manually.'; };
+    function legacy() {
+      try {
+        var ta = document.createElement('textarea');
+        ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+        document.body.appendChild(ta); ta.select();
+        var ok = document.execCommand('copy');
+        document.body.removeChild(ta);
+        if (ok) toast.textContent = okMsg; else fail();
+      } catch (e) { fail(); }
+    }
+    try {
+      if (navigator.clipboard && window.isSecureContext !== false) navigator.clipboard.writeText(text).then(function () { toast.textContent = okMsg; }, legacy);
+      else legacy();
+    } catch (err) { legacy(); }
+  }
+  document.getElementById('copy').addEventListener('click', function () {
+    if (!intervals.length) { toast.textContent = 'Nothing to copy yet.'; return; }
+    copyText(intervals.map(function (v) { return fmt(v, 0); }).join('\n'), 'Copied ' + intervals.length + ' intervals (ms, one per line).');
+  });
+  document.getElementById('copyStats').addEventListener('click', function () {
+    var s = lastStats;
+    if (!s) { toast.textContent = 'Nothing to copy yet.'; return; }
+    var lines = [
+      ['Intervals', s.n, ''], ['Mean', dash(s.mean, 1), 'ms'], ['Median', dash(s.median, 1), 'ms'],
+      ['Min', dash(s.min, 0), 'ms'], ['Max', dash(s.max, 0), 'ms'], ['Range', dash(s.range, 0), 'ms'],
+      ['SD (SDNN)', dash(s.sd, 1), 'ms'], ['Variance', dash(s.variance, 0), 'ms^2'], ['CV', dash(s.cv, 1), '%'],
+      ['IQR', dash(s.iqr, 0), 'ms'], ['Mean BPM', dash(s.bpmMean, 1), 'bpm'],
+      ['Fastest BPM', dash(s.bpmFast, 1), 'bpm'], ['Slowest BPM', dash(s.bpmSlow, 1), 'bpm'],
+      ['RMSSD', dash(s.rmssd, 1), 'ms'], ['SDSD', dash(s.sdsd, 1), 'ms'], ['pNN50', dash(s.pnn50, 1), '%'],
+      ['SD1', dash(s.sd1, 1), 'ms'], ['SD2', dash(s.sd2, 1), 'ms']
+    ].map(function (r) { return r[0] + '\t' + r[1] + (r[2] ? '\t' + r[2] : ''); });
+    copyText(lines.join('\n'), 'Copied statistics (tab-separated, paste into a spreadsheet).');
+  });
+
+  render();
+})();
+</script>
+</body>
+</html>
